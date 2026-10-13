@@ -37,10 +37,6 @@ WPA_SUPPL_DIR_INCLUDE += external/libnl/include
 WPA_SRC_FILE += driver_cmd_nl80211.c
 endif
 
-ifdef CONFIG_DRIVER_WEXT
-WPA_SRC_FILE += driver_cmd_wext.c
-endif
-
 ifeq ($(TARGET_ARCH),arm)
 # To force sizeof(enum) = 4
 L_CFLAGS += -mabi=aapcs-linux
@@ -54,16 +50,12 @@ ifdef CONFIG_P2P
 L_CFLAGS += -DCONFIG_P2P
 endif
 
-ifeq ($(TARGET_USES_64_BIT_BCMDHD),true)
-L_CFLAGS += -DBCMDHD_64_BIT_IPC
-endif
-
 L_CFLAGS +=  -Wno-unused-parameter -Wno-macro-redefined
 
 ########################
 
 include $(CLEAR_VARS)
-LOCAL_MODULE := lib_driver_cmd_multi
+LOCAL_MODULE := lib_driver_cmd_icomm
 LOCAL_LICENSE_KINDS := SPDX-license-identifier-BSD legacy_proprietary
 LOCAL_LICENSE_CONDITIONS := notice proprietary by_exception_only
 LOCAL_NOTICE_FILE := $(LOCAL_PATH)/NOTICE

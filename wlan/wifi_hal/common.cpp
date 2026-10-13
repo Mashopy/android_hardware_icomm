@@ -37,46 +37,6 @@
 /* test mode flag for halutil only */
 bool halutil_mode = false;
 
-int read_wifi(char *wifi_type)
-{
-    FILE *fd = fopen("/data/vendor/wifi/wifi_module", "r");
-    if (fd) {
-        fgets(wifi_type, 15, fd);
-    } else
-        return -1;
-
-    fclose(fd);
-    return 0;
-}
-const char *get_wifi_name()
-{
-    char wifi_type[15];
-    read_wifi(wifi_type);
-    if (strstr(wifi_type, "bcm") != NULL) {
-        return "bcm";
-    } else if(strstr(wifi_type, "qca") != NULL) {
-        return "qca";
-    } else if(strncmp(wifi_type, "rtl", 3) == 0) {
-        return "rtl";
-    } else if(strstr(wifi_type, "mtk") != NULL) {
-        return "mtk";
-    } else if(strstr(wifi_type, "aml") != NULL) {
-        return "mtk";
-    } else if(strstr(wifi_type, "ssv") != NULL) {
-        return "mtk";
-    } else {
-#ifdef REALTEK_WIFI_SUPPORT
-        return "rtl";
-#elif  MTK_WIFI_SUPPORT
-        return "mtk";
-#elif  QCA_WIFI_SUPPORT
-        return "qca";
-#else
-        return "bcm";
-#endif
-    }
-}
-
 interface_info *getIfaceInfo(wifi_interface_handle handle)
 {
     return (interface_info *)handle;

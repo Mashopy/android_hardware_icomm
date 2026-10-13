@@ -49,10 +49,11 @@
 #include <hardware_legacy/rtt.h>
 #include "common.h"
 #include "cpp_bindings.h"
-#include "brcm_version.h"
+#include "version.h"
 #include <stdio.h>
 #include <string>
 #include <vector>
+
 /*
  BUGBUG: normally, libnl allocates ports for all connections it makes; but
  being a static library, it doesn't really know how many other netlink connections
@@ -956,66 +957,6 @@ public:
 
 };
 
-class SetPnoMacAddrOuiCommand : public WifiCommand {
-
-private:
-    byte *mOui;
-    feature_set *fset;
-    feature_set *feature_matrix;
-    int *fm_size;
-    int set_size_max;
-public:
-    SetPnoMacAddrOuiCommand(wifi_interface_handle handle, oui scan_oui)
-        : WifiCommand("SetPnoMacAddrOuiCommand", handle, 0)
-    {
-        mOui = scan_oui;
-        fset = NULL;
-        feature_matrix = NULL;
-        fm_size = NULL;
-        set_size_max = 0;
-    }
-
-    int createRequest(WifiRequest& request, int subcmd, byte *scan_oui) {
-        int result = request.create(GOOGLE_OUI, subcmd);
-        if (result < 0) {
-            return result;
-        }
-
-        nlattr *data = request.attr_start(NL80211_ATTR_VENDOR_DATA);
-        result = request.put(ANDR_WIFI_ATTRIBUTE_PNO_RANDOM_MAC_OUI, scan_oui, DOT11_OUI_LEN);
-        if (result < 0) {
-            return result;
-        }
-
-        request.attr_end(data);
-        return WIFI_SUCCESS;
-
-    }
-
-    int start() {
-        ALOGD("Sending mac address OUI");
-        WifiRequest request(familyId(), ifaceId());
-        int result = createRequest(request, WIFI_SUBCMD_SET_PNO_RANDOM_MAC_OUI, mOui);
-        if (result != WIFI_SUCCESS) {
-            ALOGE("failed to create request; result = %d", result);
-            return result;
-        }
-
-        result = requestResponse(request);
-        if (result != WIFI_SUCCESS) {
-            ALOGE("failed to set scanning mac OUI; result = %d", result);
-        }
-
-        return result;
-    }
-protected:
-    virtual int handleResponse(WifiEvent& reply) {
-         ALOGD("Request complete!");
-        /* Nothing to do on response! */
-        return NL_SKIP;
-    }
-};
-
 class SetNodfsCommand : public WifiCommand {
 
 private:
@@ -1878,15 +1819,13 @@ wifi_interface_handle wifi_get_iface_handle(wifi_handle handle, char *name)
 
 wifi_error wifi_get_supported_feature_set(wifi_interface_handle handle, feature_set *set)
 {
-    if (strncmp(get_wifi_name(), "mtk", 3) == 0 || strncmp(get_wifi_name(), "qca", 3) == 0 || strncmp(get_wifi_name(), "rtl", 3) == 0) {
-        if (set) {
-            wifi_error result = WIFI_SUCCESS;
-            *set = WIFI_FEATURE_SCAN_RAND | WIFI_FEATURE_SET_LATENCY_MODE;
-            return result;
-        } else {
-            ALOGE("wifi_get_supported_feature_set is NULL");
-            return  WIFI_ERROR_INVALID_ARGS;
-        }
+    if (set) {
+        wifi_error result = WIFI_SUCCESS;
+        *set = WIFI_FEATURE_SCAN_RAND | WIFI_FEATURE_SET_LATENCY_MODE;
+        return result;
+    } else {
+        ALOGE("wifi_get_supported_feature_set is NULL");
+        return  WIFI_ERROR_INVALID_ARGS;
     }
     GetFeatureSetCommand command(handle, ANDR_WIFI_ATTRIBUTE_NUM_FEATURE_SET, set, NULL, NULL, 1);
     return (wifi_error) command.requestResponse();
@@ -1923,12 +1862,7 @@ wifi_error wifi_get_supported_radio_combinations_matrix(wifi_handle handle,
 
 wifi_error wifi_set_scanning_mac_oui(wifi_interface_handle handle, oui scan_oui)
 {
-    if (strncmp(get_wifi_name(), "rtl", 3) == 0 || strncmp(get_wifi_name(), "mtk", 3) == 0 || strncmp(get_wifi_name(), "qca", 3) == 0)
-        return WIFI_SUCCESS;
-
-    SetPnoMacAddrOuiCommand command(handle, scan_oui);
-    return (wifi_error)command.start();
-
+    return WIFI_SUCCESS;
 }
 
 wifi_error wifi_set_nodfs_flag(wifi_interface_handle handle, u32 nodfs)
@@ -1990,20 +1924,9 @@ static wifi_error wifi_stop_rssi_monitoring(wifi_request_id id, wifi_interface_h
 static wifi_error wifi_get_packet_filter_capabilities(wifi_interface_handle handle,
         u32 *version, u32 *max_len)
 {
-    if (strncmp(get_wifi_name(), "rtl", 3) == 0 || strncmp(get_wifi_name(), "mtk", 3) == 0 || strncmp(get_wifi_name(), "qca", 3) == 0) {
-        *version = 4;
-        *max_len = 1024;
-        return WIFI_SUCCESS;
-    }
-    ALOGD("Getting APF capabilities, halHandle = %p\n", handle);
-    AndroidPktFilterCommand *cmd = new AndroidPktFilterCommand(handle, version, max_len);
-    NULL_CHECK_RETURN(cmd, "memory allocation failure", WIFI_ERROR_OUT_OF_MEMORY);
-    wifi_error result = (wifi_error)cmd->start();
-    if (result == WIFI_SUCCESS) {
-        ALOGD("Getting APF capability, version = %d, max_len = %d\n", *version, *max_len);
-    }
-    cmd->releaseRef();
-    return result;
+    *version = 4;
+    *max_len = 1024;
+    return WIFI_SUCCESS;
 }
 
 static wifi_error wifi_set_packet_filter(wifi_interface_handle handle,
@@ -2041,11 +1964,8 @@ static wifi_error wifi_configure_nd_offload(wifi_interface_handle handle, u8 ena
 
 wifi_error wifi_set_latency_mode(wifi_interface_handle handle, wifi_latency_mode mode)
 {
-//    if (strncmp(get_wifi_name(), "bcm", 3) == 0 || strncmp(get_wifi_name(), "qca", 3) == 0 || strncmp(get_wifi_name(), "mtk", 3) == 0)
     ALOGI("wifi_set_latency_mode set to %d",mode);
     return WIFI_SUCCESS;
-//    SetLatencyModeCommand command(handle, mode);
-//    return (wifi_error) command.requestResponse();
 }
 
 /////////////////////////////////////////////////////////////////////////

@@ -46,7 +46,7 @@
 #include "cpp_bindings.h"
 #include <string>
 //using namespace android;
-#include "brcm_version.h"
+#include "version.h"
 #define WIFI_HAL_EVENT_SOCK_PORT     645
 
 #define ARRAYSIZE(a)	(u8)(sizeof(a) / sizeof(a[0]))
@@ -2311,364 +2311,29 @@ wifi_error wifi_get_firmware_memory_dump( wifi_interface_handle iface,
     return result;
 }
 
-class PacketFateCommand: public WifiCommand
-{
-    void *mReportBufs;
-    size_t mNoReqFates;
-    size_t *mNoProvidedFates;
-    PktFateReqType mReqType;
-
-public:
-    PacketFateCommand(wifi_interface_handle handle)
-        : WifiCommand("PacketFateCommand", handle, 0), mReqType(PACKET_MONITOR_START)
-    {
-        mReportBufs = NULL;
-        mNoReqFates = 0;
-        mNoProvidedFates = NULL;
-    }
-
-    PacketFateCommand(wifi_interface_handle handle, wifi_tx_report *tx_report_bufs,
-            size_t n_requested_fates, size_t *n_provided_fates)
-        : WifiCommand("PacketFateCommand", handle, 0), mReportBufs(tx_report_bufs),
-                  mNoReqFates(n_requested_fates), mNoProvidedFates(n_provided_fates),
-                  mReqType(TX_PACKET_FATE)
-    { }
-
-    PacketFateCommand(wifi_interface_handle handle, wifi_rx_report *rx_report_bufs,
-            size_t n_requested_fates, size_t *n_provided_fates)
-        : WifiCommand("PacketFateCommand", handle, 0), mReportBufs(rx_report_bufs),
-                  mNoReqFates(n_requested_fates), mNoProvidedFates(n_provided_fates),
-                  mReqType(RX_PACKET_FATE)
-    { }
-
-    int createRequest(WifiRequest& request) {
-        if (mReqType == TX_PACKET_FATE) {
-            ALOGD("%s Get Tx packet fate request\n", __FUNCTION__);
-            return createTxPktFateRequest(request);
-        } else if (mReqType == RX_PACKET_FATE) {
-            ALOGD("%s Get Rx packet fate request\n", __FUNCTION__);
-            return createRxPktFateRequest(request);
-        } else if (mReqType == PACKET_MONITOR_START) {
-            ALOGD("%s Monitor packet fate request\n", __FUNCTION__);
-            return createMonitorPktFateRequest(request);
-        } else {
-            ALOGE("%s Unknown packet fate request\n", __FUNCTION__);
-            return WIFI_ERROR_NOT_SUPPORTED;
-        }
-        return WIFI_SUCCESS;
-    }
-
-    int createMonitorPktFateRequest(WifiRequest& request) {
-        int result = request.create(GOOGLE_OUI, LOGGER_START_PKT_FATE_MONITORING);
-        if (result < 0) {
-            return result;
-        }
-
-        nlattr *data = request.attr_start(NL80211_ATTR_VENDOR_DATA);
-        request.attr_end(data);
-        return result;
-    }
-
-    int createTxPktFateRequest(WifiRequest& request) {
-        int result = request.create(GOOGLE_OUI, LOGGER_GET_TX_PKT_FATES);
-        if (result < 0) {
-            return result;
-        }
-
-        memset(mReportBufs, 0, (mNoReqFates * sizeof(wifi_tx_report)));
-        nlattr *data = request.attr_start(NL80211_ATTR_VENDOR_DATA);
-        result = request.put_u32(LOGGER_ATTRIBUTE_PKT_FATE_NUM, mNoReqFates);
-        if (result < 0) {
-            return result;
-        }
-        result = request.put_u64(LOGGER_ATTRIBUTE_PKT_FATE_DATA, (uint64_t)mReportBufs);
-        if (result < 0) {
-            return result;
-        }
-        request.attr_end(data);
-        return result;
-    }
-
-    int createRxPktFateRequest(WifiRequest& request) {
-        int result = request.create(GOOGLE_OUI, LOGGER_GET_RX_PKT_FATES);
-        if (result < 0) {
-            return result;
-        }
-
-        memset(mReportBufs, 0, (mNoReqFates * sizeof(wifi_rx_report)));
-        nlattr *data = request.attr_start(NL80211_ATTR_VENDOR_DATA);
-        result = request.put_u32(LOGGER_ATTRIBUTE_PKT_FATE_NUM, mNoReqFates);
-        if (result < 0) {
-            return result;
-        }
-        result = request.put_u64(LOGGER_ATTRIBUTE_PKT_FATE_DATA, (uint64_t)mReportBufs);
-        if (result < 0) {
-            return result;
-        }
-        request.attr_end(data);
-        return result;
-    }
-
-    int start() {
-        ALOGD("Start get packet fate command\n");
-        WifiRequest request(familyId(), ifaceId());
-
-        int result = createRequest(request);
-        if (result < 0) {
-            ALOGE("Failed to create get pkt fate request; result = %d\n", result);
-            return result;
-        }
-
-        result = requestResponse(request);
-        if (result != WIFI_SUCCESS) {
-            ALOGE("Failed to register get pkt fate response; result = %d\n", result);
-        }
-        return result;
-    }
-
-    int handleResponse(WifiEvent& reply) {
-        ALOGD("In GetPktFateCommand::handleResponse\n");
-
-        if (reply.get_cmd() != NL80211_CMD_VENDOR) {
-            ALOGI("Ignoring reply with cmd = %d", reply.get_cmd());
-            return NL_SKIP;
-        }
-
-        int id = reply.get_vendor_id();
-        int subcmd = reply.get_vendor_subcmd();
-        nlattr *vendor_data = reply.get_attribute(NL80211_ATTR_VENDOR_DATA);
-        int len = reply.get_vendor_data_len();
-
-        ALOGI("Id = %0x, subcmd = %d, len = %d", id, subcmd, len);
-
-        if (mReqType == TX_PACKET_FATE) {
-            ALOGI("Response received for get TX pkt fate command\n");
-        } else if (mReqType == RX_PACKET_FATE) {
-            ALOGI("Response received for get RX pkt fate command\n");
-        } else if (mReqType == PACKET_MONITOR_START) {
-            ALOGI("Response received for monitor pkt fate command\n");
-            return NL_OK;
-        } else {
-            ALOGE("Response received for unknown pkt fate command\n");
-            return NL_SKIP;
-        }
-
-        if (vendor_data == NULL || len == 0) {
-            ALOGE("no vendor data in GetPktFateCommand response; ignoring it\n");
-            return NL_SKIP;
-        }
-
-        for (nl_iterator it(vendor_data); it.has_next(); it.next()) {
-            if (it.get_type() == LOGGER_ATTRIBUTE_PKT_FATE_NUM) {
-                *mNoProvidedFates = it.get_u32();
-                ALOGI("No: of pkt fates provided is %zu\n", *mNoProvidedFates);
-            } else {
-                ALOGE("Ignoring invalid attribute type = %d, size = %d\n",
-                        it.get_type(), it.get_len());
-            }
-        }
-
-        return NL_OK;
-    }
-
-    int handleEvent(WifiEvent& event) {
-        /* NO events to handle here! */
-        return NL_SKIP;
-    }
-};
-
-class GetWakeReasonCountCommand : public WifiCommand {
-    WLAN_DRIVER_WAKE_REASON_CNT *mWakeReasonCnt;
-    void *mCmdEventWakeCount;
-    public:
-    GetWakeReasonCountCommand(wifi_interface_handle handle,
-        WLAN_DRIVER_WAKE_REASON_CNT *wlanDriverWakeReasonCount) :
-        WifiCommand("GetWakeReasonCountCommand", handle, 0),
-        mWakeReasonCnt(wlanDriverWakeReasonCount)
-    {
-        mCmdEventWakeCount = mWakeReasonCnt->cmd_event_wake_cnt;
-    }
-
-     int createRequest(WifiRequest& request) {
-        ALOGE("Start create wake stats command\n");
-        int result = request.create(GOOGLE_OUI, LOGGER_GET_WAKE_REASON_STATS);
-        if (result < 0) {
-           return result;
-        }
-
-        nlattr *data = request.attr_start(NL80211_ATTR_VENDOR_DATA);
-
-        request.attr_end(data);
-        return WIFI_SUCCESS;
-    }
-
-    int start() {
-        ALOGD("Start get wake stats command\n");
-        WifiRequest request(familyId(), ifaceId());
-
-        int result = createRequest(request);
-        if (result < 0) {
-            ALOGE("Failed to create request result = %d\n", result);
-            return result;
-        }
-
-        result = requestResponse(request);
-        if (result != WIFI_SUCCESS) {
-            ALOGE("Failed to register wake stats  response; result = %d\n", result);
-        }
-        return result;
-    }
-
-    protected:
-    int handleResponse(WifiEvent& reply) {
-        ALOGE("In GetWakeReasonCountCommand::handleResponse");
-
-        if (reply.get_cmd() != NL80211_CMD_VENDOR) {
-            ALOGD("Ignoring reply with cmd = %d", reply.get_cmd());
-            return NL_SKIP;
-        }
-
-        int id = reply.get_vendor_id();
-        int subcmd = reply.get_vendor_subcmd();
-
-        nlattr *vendor_data = reply.get_attribute(NL80211_ATTR_VENDOR_DATA);
-        int len = reply.get_vendor_data_len();
-
-        ALOGV("Id = %0x, subcmd = %d, len = %d", id, subcmd, len);
-        if (vendor_data == NULL || len == 0) {
-            ALOGE("no vendor data in GetGetWakeReasonCountCommand response; ignoring it");
-            return NL_SKIP;
-        }
-
-        for (nl_iterator it(vendor_data); it.has_next(); it.next()) {
-            switch (it.get_type()) {
-                case WAKE_STAT_ATTRIBUTE_TOTAL_DRIVER_FW:
-                    mWakeReasonCnt->total_driver_fw_local_wake =
-                        it.get_u32();
-                    break;
-                case WAKE_STAT_ATTRIBUTE_TOTAL:
-                    mWakeReasonCnt->total_cmd_event_wake =
-                        it.get_u32();
-                    break;
-                case WAKE_STAT_ATTRIBUTE_CMD_COUNT_USED:
-                    mWakeReasonCnt->cmd_event_wake_cnt_used =
-                        it.get_u32();
-                    break;
-                case WAKE_STAT_ATTRIBUTE_WAKE:
-                    memcpy(mCmdEventWakeCount, it.get_data(),
-                            (mWakeReasonCnt->cmd_event_wake_cnt_used * sizeof(int)));
-                    break;
-                case WAKE_STAT_ATTRIBUTE_TOTAL_RX_DATA_WAKE:
-                    mWakeReasonCnt->total_rx_data_wake =
-                        it.get_u32();
-                    break;
-                case WAKE_STAT_ATTRIBUTE_RX_UNICAST_COUNT:
-                    mWakeReasonCnt->rx_wake_details.rx_unicast_cnt =
-                        it.get_u32();
-                    break;
-                case WAKE_STAT_ATTRIBUTE_RX_MULTICAST_COUNT:
-                    mWakeReasonCnt->rx_wake_details.rx_multicast_cnt =
-                        it.get_u32();
-                    break;
-                case WAKE_STAT_ATTRIBUTE_RX_BROADCAST_COUNT:
-                    mWakeReasonCnt->rx_wake_details.rx_broadcast_cnt =
-                        it.get_u32();
-                    break;
-                case WAKE_STAT_ATTRIBUTE_RX_ICMP_PKT:
-                    mWakeReasonCnt->rx_wake_pkt_classification_info.icmp_pkt =
-                        it.get_u32();
-                    break;
-                case WAKE_STAT_ATTRIBUTE_RX_ICMP6_PKT:
-                    mWakeReasonCnt->rx_wake_pkt_classification_info.icmp6_pkt =
-                        it.get_u32();
-                    break;
-                case WAKE_STAT_ATTRIBUTE_RX_ICMP6_RA:
-                    mWakeReasonCnt->rx_wake_pkt_classification_info.icmp6_ra =
-                        it.get_u32();
-                    break;
-                case WAKE_STAT_ATTRIBUTE_RX_ICMP6_NA:
-                    mWakeReasonCnt->rx_wake_pkt_classification_info.icmp6_na =
-                        it.get_u32();
-                    break;
-                case WAKE_STAT_ATTRIBUTE_RX_ICMP6_NS:
-                    mWakeReasonCnt->rx_wake_pkt_classification_info.icmp6_ns =
-                        it.get_u32();
-                    break;
-                case WAKE_STAT_ATTRIBUTE_IPV4_RX_MULTICAST_ADD_CNT:
-                    mWakeReasonCnt->rx_multicast_wake_pkt_info.ipv4_rx_multicast_addr_cnt =
-                        it.get_u32();
-                    break;
-                case WAKE_STAT_ATTRIBUTE_IPV6_RX_MULTICAST_ADD_CNT:
-                    mWakeReasonCnt->rx_multicast_wake_pkt_info.ipv6_rx_multicast_addr_cnt =
-                        it.get_u32();
-                    break;
-                case WAKE_STAT_ATTRIBUTE_OTHER_RX_MULTICAST_ADD_CNT:
-                    mWakeReasonCnt->rx_multicast_wake_pkt_info.other_rx_multicast_addr_cnt =
-                        it.get_u32();
-                    break;
-                default:
-                    break;
-            }
-
-         }
-        return NL_OK;
-    }
-};
-
 wifi_error wifi_start_pkt_fate_monitoring(wifi_interface_handle handle)
 {
-    if (strncmp(get_wifi_name(), "rtl", 3) == 0 || strncmp(get_wifi_name(), "mtk", 3) == 0 || strncmp(get_wifi_name(), "qca", 3) == 0)
-        return WIFI_SUCCESS;
-
-    PacketFateCommand *cmd = new PacketFateCommand(handle);
-    NULL_CHECK_RETURN(cmd, "memory allocation failure", WIFI_ERROR_OUT_OF_MEMORY);
-    wifi_error result = (wifi_error)cmd->start();
-    cmd->releaseRef();
-    return result;
+    return WIFI_SUCCESS;
 }
 
 wifi_error wifi_get_tx_pkt_fates(wifi_interface_handle handle,
         wifi_tx_report *tx_report_bufs, size_t n_requested_fates,
         size_t *n_provided_fates)
 {
-    if (strncmp(get_wifi_name(), "rtl", 3) == 0 || strncmp(get_wifi_name(), "mtk", 3) == 0 || strncmp(get_wifi_name(), "qca", 3) == 0)
-        return WIFI_SUCCESS;
-
-    PacketFateCommand *cmd = new PacketFateCommand(handle, tx_report_bufs,
-                n_requested_fates, n_provided_fates);
-    NULL_CHECK_RETURN(cmd, "memory allocation failure", WIFI_ERROR_OUT_OF_MEMORY);
-    wifi_error result = (wifi_error)cmd->start();
-    cmd->releaseRef();
-    return result;
+    return WIFI_SUCCESS;
 }
 
 wifi_error wifi_get_rx_pkt_fates(wifi_interface_handle handle,
         wifi_rx_report *rx_report_bufs, size_t n_requested_fates,
         size_t *n_provided_fates)
 {
-    if (strncmp(get_wifi_name(), "rtl", 3) == 0 || strncmp(get_wifi_name(), "mtk", 3) == 0 || strncmp(get_wifi_name(), "qca", 3) == 0)
-        return WIFI_SUCCESS;
-
-    PacketFateCommand *cmd = new PacketFateCommand(handle, rx_report_bufs,
-                n_requested_fates, n_provided_fates);
-    NULL_CHECK_RETURN(cmd, "memory allocation failure", WIFI_ERROR_OUT_OF_MEMORY);
-    wifi_error result = (wifi_error)cmd->start();
-    cmd->releaseRef();
-    return result;
+    return WIFI_SUCCESS;
 }
 
 wifi_error wifi_get_wake_reason_stats(wifi_interface_handle handle,
         WLAN_DRIVER_WAKE_REASON_CNT *wifi_wake_reason_cnt)
 {
-    if (strncmp(get_wifi_name(), "rtl", 3) == 0 || strncmp(get_wifi_name(), "mtk", 3) == 0 || strncmp(get_wifi_name(), "qca", 3) == 0)
-        return WIFI_SUCCESS;
-
-    GetWakeReasonCountCommand *cmd = new GetWakeReasonCountCommand(handle,
-                wifi_wake_reason_cnt);
-    NULL_CHECK_RETURN(cmd, "memory allocation failure", WIFI_ERROR_OUT_OF_MEMORY);
-    wifi_error result = (wifi_error)cmd->start();
-    cmd->releaseRef();
-    return result;
+    return WIFI_SUCCESS;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
